@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_FILE = ROOT / "data" / "processed" / "ncr_daily.csv"
 TARGET = "HeatLevelTomorrow"
 DANGER = "Danger"
+CORE_LEVELS = ["Caution", "Extreme Caution", "Danger"]   # the 3 levels with hundreds of days; Not Hazardous has only 6, Extreme Danger none
 RANDOM_STATE = 42          # use this number for anything random (Random Forest, Gradient Boosting)
 TEST_FRACTION = 0.20       # the last 20 % of the days are the test set
 GAP_DAYS = 1               # one day is skipped between training and test (and before every fold's check block)
@@ -55,13 +56,17 @@ def make_folds(train: pd.DataFrame) -> list[tuple[np.ndarray, np.ndarray]]:
 def score(y_true, y_pred) -> dict:
     """The numbers we report for one block of days.
     macro_f1: the F1 of each class that really occurs in the block, averaged, so the small Danger class counts as much
-              as the big Extreme Caution class (accuracy alone would let a model ignore Danger).
+              as the big Extreme Caution class (accuracy alone would let a model ignore Danger). Careful: Not Hazardous
+              has only 6 days in total, so a check block has 0 or 1 of them and this number can jump around.
+    macro_f1_core3: the same, but only over Caution, Extreme Caution and Danger, the three levels with hundreds of days.
+              Steadier, so it is the better number for comparing models.
     danger_recall: of the real Danger days, the share the model caught (the costly mistake is a missed Danger day).
     danger_precision: of the days the model called Danger, the share that really were."""
     y_true, y_pred = np.asarray(y_true), np.asarray(y_pred)
     present = np.unique(y_true)
     p, r, _, _ = precision_recall_fscore_support(y_true, y_pred, labels=[DANGER], zero_division=0)
     return {"macro_f1": f1_score(y_true, y_pred, labels=present, average="macro", zero_division=0),
+            "macro_f1_core3": f1_score(y_true, y_pred, labels=CORE_LEVELS, average="macro", zero_division=0),
             "accuracy": accuracy_score(y_true, y_pred),
             "danger_recall": float(r[0]), "danger_precision": float(p[0])}
 

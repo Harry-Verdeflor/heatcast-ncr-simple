@@ -42,20 +42,21 @@ class DailyFile(unittest.TestCase):
         self.assertEqual(self.df.shape, (4015, 7))
         self.assertTrue((self.df["Date"].diff().dropna() == pd.Timedelta(days=1)).all())
         self.assertFalse(self.df.isna().any().any())
-        self.assertEqual(set(self.df[C.TARGET]), set(C.CLASSES))
+        self.assertEqual(set(self.df[C.TARGET]), set(C.CLASSES) - {"Extreme Danger"})     # that level never occurs
 
     def test_the_file_is_exactly_what_the_script_makes_from_the_original(self):
         rebuilt = M.make_daily(pd.read_csv(M.ORIGINAL))
         pd.testing.assert_frame_equal(self.df, rebuilt, check_dtype=False)
 
     def test_class_counts(self):
-        counts = self.df[C.TARGET].value_counts().reindex(C.CLASSES).to_dict()
-        self.assertEqual(counts, {"Caution or below": 546, "Extreme Caution": 3167, "Danger": 302})
+        counts = self.df[C.TARGET].value_counts().reindex(C.CLASSES).fillna(0).astype(int).to_dict()
+        self.assertEqual(counts, {"Not Hazardous": 6, "Caution": 540, "Extreme Caution": 3167, "Danger": 302,
+                                  "Extreme Danger": 0})
 
     def test_level_boundaries_go_to_the_higher_level(self):
-        s = M.to_level(pd.Series([24.0, 32.99, 33.0, 41.99, 42.0, 55.0]))
-        self.assertEqual(list(s), ["Caution or below", "Caution or below", "Extreme Caution", "Extreme Caution",
-                                   "Danger", "Danger"])
+        s = M.to_level(pd.Series([24.0, 26.99, 27.0, 32.99, 33.0, 41.99, 42.0, 51.99, 52.0, 60.0]))
+        self.assertEqual(list(s), ["Not Hazardous", "Not Hazardous", "Caution", "Caution", "Extreme Caution",
+                                   "Extreme Caution", "Danger", "Danger", "Extreme Danger", "Extreme Danger"])
 
     def test_cities_are_averaged_and_the_label_follows_the_average(self):
         d = M.make_daily(tiny_original())
@@ -82,10 +83,13 @@ class SplitAndFolds(unittest.TestCase):
         self.assertEqual(self.test["Date"].max(), pd.Timestamp("2025-12-28"))
         self.assertEqual(set(self.train["Date"]) & set(self.test["Date"]), set())
 
-    def test_every_class_is_in_train_and_test(self):
-        for part, expected in ((self.train, {"Caution or below": 457, "Extreme Caution": 2523, "Danger": 231}),
-                               (self.test, {"Caution or below": 89, "Extreme Caution": 643, "Danger": 71})):
-            self.assertEqual(part[C.TARGET].value_counts().reindex(C.CLASSES).to_dict(), expected)
+    def test_class_counts_in_train_and_test(self):
+        # Not Hazardous has 6 days in total, all in the training days, and Extreme Danger never occurs.
+        for part, expected in ((self.train, {"Not Hazardous": 6, "Caution": 451, "Extreme Caution": 2523, "Danger": 231,
+                                             "Extreme Danger": 0}),
+                               (self.test, {"Not Hazardous": 0, "Caution": 89, "Extreme Caution": 643, "Danger": 71,
+                                            "Extreme Danger": 0})):
+            self.assertEqual(part[C.TARGET].value_counts().reindex(C.CLASSES).fillna(0).astype(int).to_dict(), expected)
 
     def test_folds_move_forward_in_time_and_stay_inside_training(self):
         folds = C.make_folds(self.train)
@@ -99,15 +103,24 @@ class SplitAndFolds(unittest.TestCase):
             previous_end = check_idx[-1]
         self.assertLess(self.train["Date"].iloc[previous_end], self.test["Date"].min())
 
-    def test_every_check_block_has_all_three_classes(self):
+    def test_every_check_block_has_the_three_core_levels(self):
         for _, check_idx in C.make_folds(self.train):
-            self.assertEqual(set(self.train[C.TARGET].iloc[check_idx]), set(C.CLASSES))
+            self.assertTrue(set(C.CORE_LEVELS) <= set(self.train[C.TARGET].iloc[check_idx]))
 
 
 class Scoring(unittest.TestCase):
     def test_macro_f1_ignores_a_class_that_is_not_in_the_block(self):
         y = ["Extreme Caution", "Danger", "Extreme Caution"]
         self.assertAlmostEqual(C.score(y, y)["macro_f1"], 1.0)
+
+    def test_core3_f1_only_looks_at_caution_extreme_caution_and_danger(self):
+        y = ["Not Hazardous", "Caution", "Extreme Caution", "Danger"]
+        s = C.score(y, y)
+        self.assertAlmostEqual(s["macro_f1"], 1.0)
+        self.assertAlmostEqual(s["macro_f1_core3"], 1.0)
+        wrong = ["Caution", "Caution", "Extreme Caution", "Danger"]          # the Not Hazardous day is called Caution
+        self.assertAlmostEqual(C.score(y, wrong)["macro_f1"], (0 + 2 / 3 + 1 + 1) / 4)
+        self.assertAlmostEqual(C.score(y, wrong)["macro_f1_core3"], (2 / 3 + 1 + 1) / 3)
 
     def test_danger_recall_and_precision(self):
         y_true = ["Danger"] * 4 + ["Extreme Caution"] * 4
@@ -129,7 +142,7 @@ class CrossValidation(unittest.TestCase):
     def test_a_placeholder_model_is_scored_on_five_folds(self):
         # DummyClassifier only proves the plumbing works. It is not one of the project's models.
         table = C.cross_validate(DummyClassifier(strategy="most_frequent"), self.train)
-        self.assertEqual(table.shape, (5, 4))
+        self.assertEqual(table.shape, (5, 5))
         self.assertTrue(((table >= 0) & (table <= 1)).all().all())
         self.assertTrue((table["danger_recall"] == 0).all())
 
@@ -145,8 +158,9 @@ class CrossValidation(unittest.TestCase):
 
     def test_persistence_summary(self):
         s = C.summarize(C.persistence_cv(self.train))
-        self.assertAlmostEqual(s.loc["macro_f1", "mean"], 0.681, places=3)
-        self.assertAlmostEqual(s.loc["accuracy", "mean"], 0.839, places=3)
+        self.assertAlmostEqual(s.loc["macro_f1", "mean"], 0.541, places=3)
+        self.assertAlmostEqual(s.loc["macro_f1_core3", "mean"], 0.678, places=3)
+        self.assertAlmostEqual(s.loc["accuracy", "mean"], 0.837, places=3)
 
     def test_final_test_is_the_only_place_that_reads_the_test_days(self):
         train, test = C.split_train_test(C.load_data())

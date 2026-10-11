@@ -2,7 +2,7 @@
 
 **Question:** can we guess how hot tomorrow will *feel* in Metro Manila, using only today's weather?
 
-The answer is one of three **heat levels**: *Caution or below*, *Extreme Caution* or *Danger*. We compare three
+The answer is one of the five official PAGASA **heat levels**: *Not Hazardous*, *Caution*, *Extreme Caution*, *Danger* or *Extreme Danger*. We compare three
 traditional machine learning models, **Logistic Regression**, **Random Forest** and **Gradient Boosting**, and put the best one in a small web app.
 
 This is the simplified restart of the project: **one table, 7 columns, one row per day.** If a word is new to you, see
@@ -20,10 +20,11 @@ This is the simplified restart of the project: **one table, 7 columns, one row p
 | `Rainfall_Total` | rain today (mm) | input |
 | `Pressure_Mean` | average air pressure today (hPa) | input |
 | `SolarRadiation_Total` | how much sun today (Wh/m²) | input |
-| `HeatLevelTomorrow` | tomorrow's level: Caution or below / Extreme Caution / Danger | **the answer the model must guess** |
+| `HeatLevelTomorrow` | tomorrow's PAGASA level: Not Hazardous / Caution / Extreme Caution / Danger / Extreme Danger | **the answer the model must guess** |
 
 Each row is Metro Manila's weather for one day (the average of its 16 cities, which have very similar weather) and
-the heat level of the **next** day. Days: 546 *Caution or below*, 3,167 *Extreme Caution*, 302 *Danger*.
+the heat level of the **next** day. Days: 6 *Not Hazardous*, 540 *Caution*, 3,167 *Extreme Caution*, 302 *Danger*, 0 *Extreme Danger*.
+**Not Hazardous (6 days) and Extreme Danger (never) are too rare for a model to learn.** The levels that count are Caution, Extreme Caution and Danger.
 
 ## Which folder is which
 
@@ -57,7 +58,7 @@ the heat level of the **next** day. Days: 546 *Caution or below*, 3,167 *Extreme
 ```bash
 pip install -r requirements.txt
 python src/make_dataset.py                 # rebuilds data/processed/ncr_daily.csv (optional, it is already there)
-python -m unittest discover -s tests -v    # 17 checks, about a second
+python -m unittest discover -s tests -v    # 18 checks, about a second
 ```
 
 At the top of a notebook (the notebooks live in `notebooks/`):
@@ -83,9 +84,9 @@ summarize(persistence_cv(train))            # the "copy today" rule. Your model 
 * **Choose everything with the 5 folds inside the training days.** Never use the test days to choose anything.
 * **Use `src/common.py` for every score**, and `RANDOM_STATE = 42` for anything random.
 * **Check the test days once**, for the one model the group picks: `final_test(model, train, test)`.
-* **Main score: macro F1** (it counts the small *Danger* class as much as the big one). Also report accuracy, Danger recall and precision, and a confusion matrix.
+* **Main score: macro F1** (it counts the small *Danger* class as much as the big one). Because *Not Hazardous* has only 6 days (0 or 1 in each fold), `macro_f1` can jump around; `macro_f1_core3` (only Caution, Extreme Caution, Danger) is steadier. Also report accuracy, Danger recall and precision, and a confusion matrix.
 
-The "copy today" rule (predict that tomorrow has the same level as today) gets macro F1 **0.681 ± 0.031** on the 5 folds. A model is only useful if it does better.
+The "copy today" rule (predict that tomorrow has the same level as today) gets macro F1 **0.541 ± 0.068** (**0.678 ± 0.032** over the three core levels), accuracy 0.837 and Danger recall 0.511 on the 5 folds. It is hard to beat: today's heat index already says a lot about tomorrow. A model is only useful if it does better.
 
 ## Where the data comes from
 

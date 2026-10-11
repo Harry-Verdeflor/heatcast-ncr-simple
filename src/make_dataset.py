@@ -6,7 +6,7 @@
 What happens, in plain words:
   1. For every date, average the 16 cities. They share almost the same weather, so one row per day loses very little.
   2. Tomorrow's heat index is the average of the cities' "HeatIndex_Max_Tomorrow" (the next day's highest heat index).
-  3. The heat index is turned into 3 levels (the labels the models must predict).
+  3. The heat index is turned into the 5 official PAGASA heat levels (the labels the models must predict).
   4. Only 5 inputs are kept, so the finished table has 7 columns: Date, the 5 inputs and the label.
 
 Run it with:  python src/make_dataset.py
@@ -23,12 +23,14 @@ ROOT = Path(__file__).resolve().parents[1]
 ORIGINAL = ROOT / "data" / "original" / "ph_heat_index_next_day_16cities.csv"
 PROCESSED = ROOT / "data" / "processed" / "ncr_daily.csv"
 
-# The 3 levels. A value on a boundary goes to the higher level (33.00 is "Extreme Caution").
-#   below 33        -> Caution or below   (the official levels Not Hazardous and Caution, joined)
-#   33 to below 42  -> Extreme Caution
-#   42 and above    -> Danger             (Danger and Extreme Danger; Extreme Danger never happens in this data)
-BINS = [-np.inf, 33.0, 42.0, np.inf]
-LEVELS = ["Caution or below", "Extreme Caution", "Danger"]
+# The 5 official PAGASA heat levels. A value exactly on a boundary goes to the higher level (33.00 is "Extreme Caution").
+#   below 27         Not Hazardous     (very rare here: 6 days)
+#   27 to below 33   Caution
+#   33 to below 42   Extreme Caution
+#   42 to below 52   Danger
+#   52 and above     Extreme Danger    (never happens in this data: the highest daily value is 45.52)
+BINS = [-np.inf, 27.0, 33.0, 42.0, 52.0, np.inf]
+LEVELS = ["Not Hazardous", "Caution", "Extreme Caution", "Danger", "Extreme Danger"]
 
 # The 5 inputs. They were picked on the training days only: today's heat index has by far the strongest link to
 # tomorrow's (Spearman 0.84), and the other four each add something beyond it and tell a different story:
@@ -41,7 +43,7 @@ OUTPUT_COLUMNS = ["Date"] + WEATHER_COLUMNS + ["HeatLevelTomorrow"]
 
 
 def to_level(heat_index: pd.Series) -> pd.Series:
-    """Heat index (degrees C, 2 decimals) -> one of the 3 level names."""
+    """Heat index (degrees C, 2 decimals) -> one of the 5 level names."""
     return pd.cut(heat_index, bins=BINS, labels=LEVELS, right=False).astype(str)
 
 
