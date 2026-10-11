@@ -25,5 +25,9 @@ Contains modified Copernicus Climate Change Service (ERA5) information. OCHA/HDX
 
 ## Caution
 
-The 16 cities fall in only 2 ERA5 grid cells, so they are **not 16 independent weather stations**. That is why the simple dataset averages them into one row per day. The average hides small differences between cities (on the same day the hottest and coolest city differ by a median of 1.75 °C in the heat index).
+The 16 cities fall in only 2 ERA5 grid cells, so they are **not 16 independent weather stations**: rain, air pressure and sunshine are shared by many cities. The heat index and temperature still differ from city to city (on the same day the hottest and coolest city differ by a median of 1.76 °C in the heat index), so the simple dataset keeps the 16 cities as separate rows and keeps whole days together when splitting.
 The data are weather-model estimates, not station observations.
+
+## What the simple dataset uses
+
+`src/make_dataset.py` keeps the last 5 years of this file (2021-01-01 to 2025-12-28, 29,168 rows) and 8 of the 26 columns. The earlier years (2015 to 2020) stay in the original file, unused.
